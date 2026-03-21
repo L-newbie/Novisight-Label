@@ -1,0 +1,748 @@
+// ============================================
+// Novisight Label - 画布标注核心
+// ============================================
+
+(function() {
+    // 画布状态
+    const CanvasState = {
+        isDrawing: false,
+        startX: 0,
+        startY: 0,
+        currentX: 0,
+        currentY: 0,
+        isDragging: false,
+        dragStartX: 0,
+        dragStartY: 0,
+        draggedAnnotation: null,
+        resizeHandle: null,
+        polygonPoints: [],
+        brushPoints: []
+    };
+
+    // 初始化画布
+    function initCanvas() {
+        const canvas = document.getElementById('main-canvas');
+        if (!canvas) return;
+        
+        const wrapper = document.getElementById('canvas-wrapper');
+        
+        // 设置画布大小
+        resizeCanvas();
+        
+        // 绑定鼠标事件
+        canvas.addEventListener('mousedown', handleMouseDown);
+        canvas.addEventListener('mousemove', handleMouseMove);
+        canvas.addEventListener('mouseup', handleMouseUp);
+        canvas.addEventListener('mouseleave', handleMouseLeave);
+        
+        // 滚轮缩放
+        wrapper.addEventListener('wheel', handleWheel);
+        
+        // 窗口大小改变
+        window.addEventListener('resize', resizeCanvas);
+    }
+
+    function resizeCanvas() {
+        const canvas = document.getElementById('main-canvas');
+        const wrapper = document.getElementById('canvas-wrapper');
+        
+        if (!canvas || !wrapper) return;
+        
+        // 等待wrapper有正确的尺寸
+        const rect = wrapper.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) {
+            setTimeout(resizeCanvas, 100);
+            return;
+        }
+        
+        // 如果已经有图像，保持canvas的内部尺寸为图像的实际像素尺寸
+        // 只调整CSS样式用于显示，这样可以避免每次调整大小时清除canvas内容
+        if (AppState.currentImage) {
+            const img = AppState.currentImage;
+            
+            // 确保canvas内部尺寸保持为图像的实际像素尺寸
+            canvas.width = img.width;
+            canvas.height = img.height;
+            
+            // 计算显示缩放：让图像适应wrapper大小，同时保持宽高比
+            const scaleX = rect.width / img.width;
+            const scaleY = rect.height / img.height;
+            const displayScale = Math.min(scaleX, scaleY, 1); // 不放大，只缩小或保持原尺寸
+            
+            // 保存当前显示比例供其他函数使用
+            AppState.displayScale = displayScale;
+            
+            // CSS样式用于控制显示尺寸（考虑用户缩放）
+            const displayWidth = img.width * displayScale * AppState.zoom;
+            const displayHeight = img.height * displayScale * AppState.zoom;
+            
+            canvas.style.width = displayWidth + 'px';
+            canvas.style.height = displayHeight + 'px';
+            
+            console.log(`[resizeCanvas] 图像: ${img.width}x${img.height}, Wrapper: ${rect.width}x${rect.height}, displayScale: ${displayScale.toFixed(4)}, zoom: ${AppState.zoom}`);
+            
+            // 重新绘制
+            if (typeof redrawCanvas === 'function') {
+                requestAnimationFrame(redrawCanvas);
+            }
+        } else {
+            // 首次加载时使用wrapper的尺寸
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            canvas.style.width = rect.width + 'px';
+            canvas.style.height = rect.height + 'px';
+            AppState.displayScale = 1;
+        }
+    }
+
+    // 鼠标按下处理
+    function handleMouseDown(e) {
+        const canvas = document.getElementById('main-canvas');
+        const rect = canvas.getBoundingClientRect();
+        
+        // 计算画布内的坐标（以左上角为原点）
+        const scale = getScale();
+        const x = (e.clientX - rect.left) / scale;
+        const y = (e.clientY - rect.top) / scale;
+        
+        CanvasState.startX = x;
+        CanvasState.startY = y;
+        CanvasState.currentX = x;
+        CanvasState.currentY = y;
+        
+        if (AppState.currentTool === 'select') {
+            // 检查是否点击了标注
+            const clickedIndex = findAnnotationAt(x, y);
+            
+            if (clickedIndex !== -1) {
+                AppState.selectedAnnotation = clickedIndex;
+                CanvasState.isDragging = true;
+                CanvasState.dragStartX = x;
+                CanvasState.dragStartY = y;
+                CanvasState.draggedAnnotation = {...AppState.annotations[clickedIndex]};
+                
+                // 检查是否点击了调整手柄
+                const handle = findResizeHandle(x, y, AppState.annotations[clickedIndex]);
+                if (handle) {
+                    CanvasState.resizeHandle = handle;
+                }
+                
+                // 显示标注详情（支持双向关联）
+                if (typeof showAnnotationDetails === 'function') {
+                    showAnnotationDetails(clickedIndex);
+                }
+            } else {
+                AppState.selectedAnnotation = null;
+            }
+            
+            renderAnnotations();
+            redrawCanvas();
+        } else if (AppState.currentTool === 'bbox') {
+            CanvasState.isDrawing = true;
+        } else if (AppState.currentTool === 'polygon') {
+            if (!CanvasState.isDrawing) {
+                CanvasState.isDrawing = true;
+                CanvasState.polygonPoints = [{x, y}];
+            } else {
+                CanvasState.polygonPoints.push({x, y});
+            }
+            redrawCanvas();
+        } else if (AppState.currentTool === 'brush') {
+            CanvasState.isDrawing = true;
+            CanvasState.brushPoints = [{x, y}];
+            redrawCanvas();
+        }
+    }
+
+    // 鼠标移动处理
+    function handleMouseMove(e) {
+        const canvas = document.getElementById('main-canvas');
+        const rect = canvas.getBoundingClientRect();
+        
+        const scale = getScale();
+        const x = (e.clientX - rect.left) / scale;
+        const y = (e.clientY - rect.top) / scale;
+        
+        CanvasState.currentX = x;
+        CanvasState.currentY = y;
+        
+        // 更新坐标显示
+        updateCoordinatesDisplay(x, y);
+        
+        if (CanvasState.isDragging && AppState.selectedAnnotation !== null) {
+            const ann = AppState.annotations[AppState.selectedAnnotation];
+            const dx = x - CanvasState.dragStartX;
+            const dy = y - CanvasState.dragStartY;
+            
+            if (CanvasState.resizeHandle) {
+                // 调整大小
+                resizeAnnotation(ann, CanvasState.resizeHandle, dx, dy);
+            } else {
+                // 移动
+                if (ann.type === 'bbox') {
+                    ann.bbox[0] = CanvasState.draggedAnnotation.bbox[0] + dx;
+                    ann.bbox[1] = CanvasState.draggedAnnotation.bbox[1] + dy;
+                }
+            }
+            
+            redrawCanvas();
+            renderAnnotations();
+        } else if (CanvasState.isDrawing) {
+            if (AppState.currentTool === 'bbox') {
+                redrawCanvas();
+                drawTempBoundingBox(CanvasState.startX, CanvasState.startY, x, y);
+            } else if (AppState.currentTool === 'brush') {
+                CanvasState.brushPoints.push({x, y});
+                redrawCanvas();
+                drawBrushStroke();
+            }
+        }
+    }
+
+    // 鼠标释放处理
+    function handleMouseUp(e) {
+        if (CanvasState.isDragging) {
+            CanvasState.isDragging = false;
+            CanvasState.resizeHandle = null;
+            saveAnnotations();
+            return;
+        }
+        
+        if (!CanvasState.isDrawing) return;
+        
+        const canvas = document.getElementById('main-canvas');
+        const rect = canvas.getBoundingClientRect();
+        const scale = getScale();
+        const x = (e.clientX - rect.left) / scale;
+        const y = (e.clientY - rect.top) / scale;
+        
+        if (AppState.currentTool === 'bbox') {
+            const width = Math.abs(x - CanvasState.startX);
+            const height = Math.abs(y - CanvasState.startY);
+            
+            if (width > 5 && height > 5) {
+                const bbox = [
+                    Math.min(CanvasState.startX, x),
+                    Math.min(CanvasState.startY, y),
+                    width,
+                    height
+                ];
+                
+                // 不直接创建标注，而是显示标签选择菜单
+                const annotationData = {
+                    type: 'bbox',
+                    bbox: bbox
+                };
+                
+                // 调用全局函数显示标签选择菜单
+                if (typeof openLabelSelectModal === 'function') {
+                    openLabelSelectModal(annotationData);
+                } else {
+                    // 如果函数不存在，直接创建标注
+                    AppState.annotations.push({
+                        type: 'bbox',
+                        bbox: bbox,
+                        label: '',
+                        note: ''
+                    });
+                    AppState.selectedAnnotation = AppState.annotations.length - 1;
+                    renderAnnotations();
+                    saveAnnotations();
+                }
+            }
+        }
+        
+        CanvasState.isDrawing = false;
+        redrawCanvas();
+    }
+
+    function handleMouseLeave() {
+        if (CanvasState.isDragging) {
+            CanvasState.isDragging = false;
+            saveAnnotations();
+        }
+        
+        if (CanvasState.isDrawing) {
+            CanvasState.isDrawing = false;
+            
+            if (AppState.currentTool === 'polygon' && CanvasState.polygonPoints.length >= 3) {
+                // 显示标签选择菜单
+                const annotationData = {
+                    type: 'polygon',
+                    points: [...CanvasState.polygonPoints]
+                };
+                
+                if (typeof openLabelSelectModal === 'function') {
+                    openLabelSelectModal(annotationData);
+                } else {
+                    AppState.annotations.push({
+                        type: 'polygon',
+                        points: [...CanvasState.polygonPoints],
+                        label: '',
+                        note: ''
+                    });
+                    AppState.selectedAnnotation = AppState.annotations.length - 1;
+                    renderAnnotations();
+                    saveAnnotations();
+                }
+            } else if (AppState.currentTool === 'brush' && CanvasState.brushPoints.length > 2) {
+                // 显示标签选择菜单
+                const annotationData = {
+                    type: 'brush',
+                    points: [...CanvasState.brushPoints]
+                };
+                
+                if (typeof openLabelSelectModal === 'function') {
+                    openLabelSelectModal(annotationData);
+                } else {
+                    AppState.annotations.push({
+                        type: 'brush',
+                        points: [...CanvasState.brushPoints],
+                        label: '',
+                        note: ''
+                    });
+                    AppState.selectedAnnotation = AppState.annotations.length - 1;
+                    renderAnnotations();
+                    saveAnnotations();
+                }
+            }
+            
+            CanvasState.polygonPoints = [];
+            CanvasState.brushPoints = [];
+        }
+        
+        redrawCanvas();
+    }
+
+    // 双击完成多边形
+    function handleDoubleClick(e) {
+        if (AppState.currentTool === 'polygon' && CanvasState.polygonPoints.length >= 3) {
+            CanvasState.isDrawing = false;
+            
+            // 显示标签选择菜单
+            const annotationData = {
+                type: 'polygon',
+                points: [...CanvasState.polygonPoints]
+            };
+            
+            if (typeof openLabelSelectModal === 'function') {
+                openLabelSelectModal(annotationData);
+            } else {
+                AppState.annotations.push({
+                    type: 'polygon',
+                    points: [...CanvasState.polygonPoints],
+                    label: '',
+                    note: ''
+                });
+                AppState.selectedAnnotation = AppState.annotations.length - 1;
+                CanvasState.polygonPoints = [];
+                
+                renderAnnotations();
+                redrawCanvas();
+                saveAnnotations();
+            }
+            
+            CanvasState.polygonPoints = [];
+            redrawCanvas();
+        }
+    }
+
+    // 滚轮缩放
+    function handleWheel(e) {
+        e.preventDefault();
+        
+        const wrapper = document.getElementById('canvas-wrapper');
+        const rect = wrapper.getBoundingClientRect();
+        
+        if (e.deltaY < 0) {
+            AppState.zoom = Math.min(AppState.zoom * 1.1, 5);
+        } else {
+            AppState.zoom = Math.max(AppState.zoom / 1.1, 0.2);
+        }
+        
+        // 更新画布CSS尺寸以反映新的缩放级别
+        if (AppState.currentImage) {
+            const canvas = document.getElementById('main-canvas');
+            const displayScale = AppState.displayScale || 1;
+            const displayWidth = AppState.currentImage.width * displayScale * AppState.zoom;
+            const displayHeight = AppState.currentImage.height * displayScale * AppState.zoom;
+            canvas.style.width = displayWidth + 'px';
+            canvas.style.height = displayHeight + 'px';
+        }
+        
+        // 保存缩放级别
+        if (typeof saveZoomLevel === 'function') {
+            saveZoomLevel();
+        }
+        
+        redrawCanvas();
+    }
+
+    // 获取缩放比例（用户缩放 * 显示适应缩放）
+    function getScale() {
+        // 使用保存的显示缩放比例（图像适应wrapper的比例）
+        // 乘以用户控制的缩放级别
+        const displayScale = AppState.displayScale || 1;
+        return AppState.zoom * displayScale;
+    }
+
+    // 更新坐标显示
+    function updateCoordinatesDisplay(x, y) {
+        document.getElementById('coord-x').textContent = `X: ${Math.round(x)}`;
+        document.getElementById('coord-y').textContent = `Y: ${Math.round(y)}`;
+        
+        if (AppState.selectedAnnotation !== null) {
+            const ann = AppState.annotations[AppState.selectedAnnotation];
+            if (ann.type === 'bbox') {
+                document.getElementById('coord-w').textContent = `W: ${Math.round(ann.bbox[2])}`;
+                document.getElementById('coord-h').textContent = `H: ${Math.round(ann.bbox[3])}`;
+            }
+        } else {
+            document.getElementById('coord-w').textContent = 'W: 0';
+            document.getElementById('coord-h').textContent = 'H: 0';
+        }
+    }
+
+    // 查找指定位置的标注
+    function findAnnotationAt(x, y) {
+        for (let i = AppState.annotations.length - 1; i >= 0; i--) {
+            const ann = AppState.annotations[i];
+            
+            if (ann.type === 'bbox') {
+                const [bx, by, bw, bh] = ann.bbox;
+                if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+                    return i;
+                }
+            } else if (ann.type === 'polygon' && ann.points) {
+                if (isPointInPolygon(x, y, ann.points)) {
+                    return i;
+                }
+            }
+        }
+        
+        return -1;
+    }
+
+    // 查找调整手柄
+    function findResizeHandle(x, y, annotation) {
+        if (!annotation || annotation.type !== 'bbox') return null;
+        
+        const handleSize = 10;
+        const [bx, by, bw, bh] = annotation.bbox;
+        
+        // 检查八个方向的调整手柄
+        const handles = [
+            {name: 'nw', x: bx, y: by},
+            {name: 'n', x: bx + bw / 2, y: by},
+            {name: 'ne', x: bx + bw, y: by},
+            {name: 'e', x: bx + bw, y: by + bh / 2},
+            {name: 'se', x: bx + bw, y: by + bh},
+            {name: 's', x: bx + bw / 2, y: by + bh},
+            {name: 'sw', x: bx, y: by + bh},
+            {name: 'w', x: bx, y: by + bh / 2}
+        ];
+        
+        for (const handle of handles) {
+            if (Math.abs(x - handle.x) <= handleSize && Math.abs(y - handle.y) <= handleSize) {
+                return handle.name;
+            }
+        }
+        
+        return null;
+    }
+
+    // 调整标注大小
+    function resizeAnnotation(annotation, handle, dx, dy) {
+        if (annotation.type !== 'bbox') return;
+        
+        const [bx, by, bw, bh] = [...annotation.bbox];
+        
+        switch(handle) {
+            case 'nw':
+                annotation.bbox[0] = bx + dx;
+                annotation.bbox[1] = by + dy;
+                annotation.bbox[2] = bw - dx;
+                annotation.bbox[3] = bh - dy;
+                break;
+            case 'n':
+                annotation.bbox[1] = by + dy;
+                annotation.bbox[3] = bh - dy;
+                break;
+            case 'ne':
+                annotation.bbox[1] = by + dy;
+                annotation.bbox[2] = bw + dx;
+                annotation.bbox[3] = bh - dy;
+                break;
+            case 'e':
+                annotation.bbox[2] = bw + dx;
+                break;
+            case 'se':
+                annotation.bbox[2] = bw + dx;
+                annotation.bbox[3] = bh + dy;
+                break;
+            case 's':
+                annotation.bbox[3] = bh + dy;
+                break;
+            case 'sw':
+                annotation.bbox[0] = bx + dx;
+                annotation.bbox[2] = bw - dx;
+                annotation.bbox[3] = bh + dy;
+                break;
+            case 'w':
+                annotation.bbox[0] = bx + dx;
+                annotation.bbox[2] = bw - dx;
+                break;
+        }
+        
+        // 确保宽高为正
+        if (annotation.bbox[2] < 0) {
+            annotation.bbox[0] += annotation.bbox[2];
+            annotation.bbox[2] = Math.abs(annotation.bbox[2]);
+        }
+        if (annotation.bbox[3] < 0) {
+            annotation.bbox[1] += annotation.bbox[3];
+            annotation.bbox[3] = Math.abs(annotation.bbox[3]);
+        }
+    }
+
+    // 点是否在多边形内
+    function isPointInPolygon(x, y, points) {
+        let inside = false;
+        
+        for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+            const xi = points[i].x, yi = points[i].y;
+            const xj = points[j].x, yj = points[j].y;
+            
+            if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+                inside = !inside;
+            }
+        }
+        
+        return inside;
+    }
+
+    // 重新绘制画布
+    window.redrawCanvas = function() {
+        const canvas = document.getElementById('main-canvas');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // 清空画布
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 绘制背景图像
+        if (AppState.currentImage) {
+            ctx.drawImage(AppState.currentImage, 0, 0);
+        }
+        
+        // 绘制标注
+        if (AppState.annotations && AppState.annotations.length > 0) {
+            AppState.annotations.forEach((ann, index) => {
+                const isSelected = index === AppState.selectedAnnotation;
+                const isHovered = index === AppState.hoveredAnnotation;
+                drawAnnotation(ctx, ann, isSelected, isHovered);
+            });
+        }
+        
+        // 绘制临时多边形
+        if (CanvasState.polygonPoints.length > 0) {
+            drawTempPolygon(ctx, CanvasState.polygonPoints);
+        }
+    };
+
+    // 绘制标注
+    function drawAnnotation(ctx, annotation, isSelected, isHovered) {
+        const scale = AppState.zoom;
+        
+        ctx.save();
+        
+        // 获取标注类型，默认为 bbox
+        const annType = annotation.type || 'bbox';
+        
+        // 获取标注颜色 - 优先使用标注自己的颜色
+        let color = annotation.color || '#00ffcc';
+        
+        // 如果被选中或悬停，使用更亮的颜色
+        if (isSelected) {
+            color = '#ff6b6b';  // 选中时使用红色
+        } else if (isHovered) {
+            color = '#ffd93d';  // 悬停时使用黄色
+        }
+        
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color + '33';
+        ctx.lineWidth = 2;
+        
+        if (annType === 'bbox') {
+            const [x, y, w, h] = annotation.bbox;
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeRect(x, y, w, h);
+            
+            // 绘制调整手柄（选中时）
+            if (isSelected) {
+                drawResizeHandles(ctx, x, y, w, h, scale);
+            }
+        } else if (annType === 'polygon' && annotation.points) {
+            ctx.beginPath();
+            ctx.moveTo(annotation.points[0].x, annotation.points[0].y);
+            
+            for (let i = 1; i < annotation.points.length; i++) {
+                ctx.lineTo(annotation.points[i].x, annotation.points[i].y);
+            }
+            
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        } else if (annType === 'brush' && annotation.points) {
+            ctx.beginPath();
+            ctx.moveTo(annotation.points[0].x, annotation.points[0].y);
+            
+            for (let i = 1; i < annotation.points.length; i++) {
+                ctx.lineTo(annotation.points[i].x, annotation.points[i].y);
+            }
+            
+            ctx.stroke();
+        }
+        
+        // 绘制标签
+        if (annotation.label && isSelected) {
+            const label = AppState.labels.find(l => l.id === annotation.label);
+            if (label && annotation.type === 'bbox') {
+                const [x, y] = annotation.bbox;
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y - 20, ctx.measureText(label.name).width + 10, 20);
+                ctx.fillStyle = '#000';
+                ctx.font = '12px Arial';
+                ctx.fillText(label.name, x + 5, y - 5);
+            }
+        }
+        
+        // 绘制序号
+        if (isSelected || true) {
+            const idx = AppState.annotations.indexOf(annotation);
+            if (annotation.type === 'bbox') {
+                const [x, y] = annotation.bbox;
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(x + 10, y + 10, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText((idx + 1).toString(), x + 10, y + 10);
+            }
+        }
+        
+        ctx.restore();
+    }
+
+    // 绘制调整手柄
+    function drawResizeHandles(ctx, x, y, w, h, scale) {
+        const handleSize = 8;
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#00ffcc';
+        ctx.lineWidth = 1;
+        
+        const handles = [
+            [x, y], [x + w / 2, y], [x + w, y],
+            [x + w, y + h / 2], [x + w, y + h],
+            [x + w / 2, y + h], [x, y + h], [x, y + h / 2]
+        ];
+        
+        handles.forEach(([hx, hy]) => {
+            ctx.fillRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize);
+            ctx.strokeRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize);
+        });
+    }
+
+    // 绘制临时边界框
+    function drawTempBoundingBox(ctx, startX, startY, endX, endY) {
+        const canvas = document.getElementById('main-canvas');
+        const context = canvas.getContext('2d');
+        
+        context.strokeStyle = '#00ffcc';
+        context.lineWidth = 2;
+        context.setLineDash([5, 5]);
+        
+        const x = Math.min(startX, endX);
+        const y = Math.min(startY, endY);
+        const w = Math.abs(endX - startX);
+        const h = Math.abs(endY - startY);
+        
+        context.strokeRect(x, y, w, h);
+        
+        // 显示尺寸
+        context.fillStyle = '#00ffcc';
+        context.font = '12px monospace';
+        context.fillText(`${Math.round(w)} x ${Math.round(h)}`, x, y - 5);
+    }
+
+    // 绘制临时多边形
+    function drawTempPolygon(ctx, points) {
+        const canvas = document.getElementById('main-canvas');
+        const context = canvas.getContext('2d');
+        
+        context.strokeStyle = '#ff00ff';
+        context.fillStyle = '#ff00ff33';
+        context.lineWidth = 2;
+        
+        if (points.length > 0) {
+            context.beginPath();
+            context.moveTo(points[0].x, points[0].y);
+            
+            for (let i = 1; i < points.length; i++) {
+                context.lineTo(points[i].x, points[i].y);
+            }
+            
+            context.closePath();
+            context.fill();
+            context.stroke();
+            
+            // 绘制顶点
+            points.forEach((point, i) => {
+                context.fillStyle = '#ff00ff';
+                context.beginPath();
+                context.arc(point.x, point.y, 4, 0, Math.PI * 2);
+                context.fill();
+            });
+        }
+    }
+
+    // 绘制画笔笔触
+    function drawBrushStroke() {
+        const canvas = document.getElementById('main-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        ctx.strokeStyle = '#ff5500';
+        ctx.lineWidth = 10;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        if (CanvasState.brushPoints.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(CanvasState.brushPoints[0].x, CanvasState.brushPoints[0].y);
+            
+            for (let i = 1; i < CanvasState.brushPoints.length; i++) {
+                ctx.lineTo(CanvasState.brushPoints[i].x, CanvasState.brushPoints[i].y);
+            }
+            
+            ctx.stroke();
+        }
+    }
+
+    // 初始化
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(initCanvas, 100);
+        
+        // 双击完成多边形
+        const canvas = document.getElementById('main-canvas');
+        if (canvas) {
+            canvas.addEventListener('dblclick', handleDoubleClick);
+        }
+    });
+
+    // 导出重绘函数到全局
+    window.redrawCanvas = redrawCanvas;
+})();

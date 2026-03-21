@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novisight Label - 智能数据标注系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/magic.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部导航栏 -->
+        <header class="cyber-header">
+            <div class="header-left">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <div class="core"></div>
+                        <div class="ring ring-1"></div>
+                        <div class="ring ring-2"></div>
+                        <div class="ring ring-3"></div>
+                    </div>
+                    <span class="logo-text">NOVISIGHT<span class="highlight">LABEL</span></span>
+                </div>
+            </div>
+            <nav class="header-nav">
+                <button class="nav-btn active" data-view="projects">
+                    <i class="fas fa-project-diagram"></i>
+                    <span>项目</span>
+                </button>
+                <button class="nav-btn hidden" data-view="workspace">
+                    <i class="fas fa-edit"></i>
+                    <span>标注</span>
+                </button>
+                <button class="nav-btn" data-view="categories">
+                    <i class="fas fa-folder-tree"></i>
+                    <span>分类</span>
+                </button>
+            </nav>
+            <div class="header-right">
+                <div class="user-avatar">
+                    <i class="fas fa-user-astronaut"></i>
+                </div>
+            </div>
+        </header>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 项目管理视图 -->
+            <section id="projects-view" class="view active">
+                <div class="view-header">
+                    <h1><i class="fas fa-rocket"></i> 项目管理中心</h1>
+                    <button class="cyber-btn primary" onclick="showCreateProjectModal()">
+                        <i class="fas fa-plus"></i> 创建新项目
+                    </button>
+                </div>
+                
+                <div class="projects-grid" id="projects-grid">
+                    <!-- 项目卡片将通过JS动态加载 -->
+                </div>
+                
+                <div class="empty-state" id="projects-empty">
+                    <div class="empty-icon">
+                        <i class="fas fa-satellite"></i>
+                    </div>
+                    <h3>暂无项目</h3>
+                    <p>创建您的第一个标注项目，开启AI训练之旅</p>
+                </div>
+            </section>
+
+            <!-- 标注工作区视图 -->
+            <section id="workspace-view" class="view">
+                <div class="workspace-container">
+                    <!-- 左侧文件列表 -->
+                    <aside class="file-sidebar">
+                        <div class="sidebar-header">
+                            <h3><i class="fas fa-folder-open"></i> 文件列表</h3>
+                            <div class="sidebar-actions">
+                                <button class="cyber-btn small" onclick="scanAndReload()" title="扫描上传目录">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="file-list" id="file-list">
+                            <!-- 文件列表将通过JS动态加载 -->
+                        </div>
+                    </aside>
+
+                    <!-- 中间画布区域 -->
+                    <div class="canvas-area">
+                        <div class="canvas-toolbar">
+                            <div class="tool-group-left">
+                                <button class="tool-btn back-btn" onclick="goBackToProjects()" title="返回项目">
+                                    <i class="fas fa-arrow-left"></i>
+                                </button>
+                                <div class="project-title" id="workspace-project-title">
+                                    <i class="fas fa-project-diagram"></i> <span>未选择项目</span>
+                                </div>
+                            </div>
+                            <div class="tool-group">
+                                <button class="tool-btn active" data-tool="select" title="选择工具 (V)">
+                                    <i class="fas fa-mouse-pointer"></i>
+                                </button>
+                                <button class="tool-btn" data-tool="bbox" title="矩形框 (R)">
+                                    <i class="fas fa-vector-square"></i>
+                                </button>
+
+                            </div>
+                            <div class="tool-group">
+                                <button class="tool-btn" data-action="undo" title="撤销 (Ctrl+Z)" disabled>
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                                <button class="tool-btn" data-action="redo" title="重做 (Ctrl+Y)" disabled>
+                                    <i class="fas fa-redo"></i>
+                                </button>
+                            </div>
+                            <div class="tool-group">
+                                <button class="tool-btn" data-action="delete" title="删除选中 (Del)">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                                <button class="tool-btn" data-action="refresh-inference" title="刷新预刷标注">
+                                    <i class="fas fa-robot"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="canvas-wrapper" id="canvas-wrapper">
+                            <!-- 加载进度指示器 -->
+                            <div class="loading-overlay" id="loading-overlay" style="display: none;">
+                                <div class="loading-spinner">
+                                    <div class="spinner-ring"></div>
+                                    <div class="spinner-ring"></div>
+                                    <div class="spinner-ring"></div>
+                                </div>
+                                <div class="loading-text" id="loading-text">加载中...</div>
+                                <div class="loading-progress" id="loading-progress">
+                                    <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <!-- 空状态提示 -->
+                            <div class="empty-canvas-state" id="empty-canvas-state" style="display: none;">
+                                <div class="empty-icon">
+                                    <i class="fas fa-image"></i>
+                                </div>
+                                <div class="empty-message">
+                                    <h3>暂无图像</h3>
+                                    <p>请先在左侧选择要标注的图像</p>
+                                </div>
+                            </div>
+                            <!-- 无标注状态提示 -->
+                            <div class="no-annotation-state" id="no-annotation-state" style="display: none;">
+                                <div class="empty-icon">
+                                    <i class="fas fa-plus-circle"></i>
+                                </div>
+                                <div class="empty-message">
+                                    <h3>暂无标注</h3>
+                                    <p>开始创建新的标注框</p>
+                                </div>
+                            </div>
+                            <canvas id="main-canvas"></canvas>
+                            <div class="canvas-overlay" id="canvas-overlay">
+                                <div class="coordinates-display">
+                                    <span id="coord-x">X: 0</span>
+                                    <span id="coord-y">Y: 0</span>
+                                    <span id="coord-w">W: 0</span>
+                                    <span id="coord-h">H: 0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧属性面板 -->
+                    <aside class="property-panel">
+                        <div class="panel-section">
+                            <div class="annotation-header">
+                                <h4><i class="fas fa-bolt"></i> 当前标注</h4>
+                                <div class="annotation-view-toggle">
+                                    <button class="view-toggle-btn active" id="view-list-btn" onclick="switchAnnotationView('list')" title="列表视图">
+                                        <i class="fas fa-list"></i>
+                                    </button>
+                                    <button class="view-toggle-btn" id="view-timeline-btn" onclick="switchAnnotationView('timeline')" title="时间线视图">
+                                        <i class="fas fa-history"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="annotation-list" id="annotation-list">
+                                <!-- 标注列表将通过JS动态加载 -->
+                            </div>
+                        </div>
+                        
+                        <div class="panel-section">
+                            <h4><i class="fas fa-cog"></i> 属性</h4>
+                            <div class="attribute-form">
+                                <div class="form-group">
+                                    <label>备注</label>
+                                    <input type="text" id="attribute-note" placeholder="添加备注...">
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group half">
+                                        <label>遮挡程度</label>
+                                        <select id="attribute-occlusion">
+                                            <option value="">无</option>
+                                            <option value="0">0%</option>
+                                            <option value="25">25%</option>
+                                            <option value="50">50%</option>
+                                            <option value="75">75%</option>
+                                            <option value="100">100%</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group half">
+                                        <label>截断程度</label>
+                                        <select id="attribute-truncation">
+                                            <option value="">无</option>
+                                            <option value="0">0%</option>
+                                            <option value="25">25%</option>
+                                            <option value="50">50%</option>
+                                            <option value="75">75%</option>
+                                            <option value="100">100%</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>运动状态</label>
+                                    <select id="attribute-motion">
+                                        <option value="">未知</option>
+                                        <option value="static">静止</option>
+                                        <option value="moving">运动中</option>
+                                        <option value="started">开始运动</option>
+                                        <option value="stopped">停止运动</option>
+                                    </select>
+                                </div>
+                                <button class="cyber-btn small full" onclick="saveAnnotation()">
+                                    <i class="fas fa-save"></i> 保存标注
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="panel-section" id="visibility-panel-container">
+                            <h4><i class="fas fa-eye"></i> 可见性控制</h4>
+                            <div class="visibility-panel" id="visibility-panel">
+                                <!-- 可见性控制面板将通过JS动态加载 -->
+                                <p style="color: var(--text-muted); text-align: center;">
+                                    加载标签数据后可控制可见性
+                                </p>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <!-- 导出视图（已隐藏，功能已移至项目卡片下载按钮）
+            <section id="export-view" class="view">
+                <div class="view-header">
+                    <h1><i class="fas fa-download"></i> 数据导出</h1>
+                </div>
+                <div class="export-options">
+                    <div class="export-card" onclick="exportData('json')">
+                        <div class="export-icon">
+                            <i class="fas fa-file-code"></i>
+                        </div>
+                        <h3>JSON</h3>
+                        <p>通用JSON格式，保留完整标注信息</p>
+                    </div>
+                    <div class="export-card" onclick="exportData('coco')">
+                        <div class="export-icon">
+                            <i class="fas fa-database"></i>
+                        </div>
+                        <h3>COCO</h3>
+                        <p>MS COCO数据集格式</p>
+                    </div>
+                    <div class="export-card" onclick="exportData('yolo')">
+                        <div class="export-icon">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <h3>YOLO</h3>
+                        <p>YOLO目标检测格式</p>
+                    </div>
+                    <div class="export-card" onclick="exportData('voc')">
+                        <div class="export-icon">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <h3>Pascal VOC</h3>
+                        <p>XML标注文件格式</p>
+                    </div>
+                    <div class="export-card" onclick="exportData('csv')">
+                        <div class="export-icon">
+                            <i class="fas fa-table"></i>
+                        </div>
+                        <h3>CSV</h3>
+                        <p>逗号分隔值表格格式</p>
+                    </div>
+                </div>
+            </section> -->
+
+            <!-- 分类管理视图 -->
+            <section id="categories-view" class="view">
+                <div class="view-header">
+                    <h1><i class="fas fa-folder-tree"></i> 分类管理中心</h1>
+                    <button class="cyber-btn primary" onclick="showCreateCategoryModal()">
+                        <i class="fas fa-plus"></i> 添加一级分类
+                    </button>
+                </div>
+                
+                <div class="categories-layout">
+                    <!-- 左侧分类树 -->
+                    <div class="categories-tree-panel">
+                        <div class="tree-header">
+                            <div class="search-box">
+                                <i class="fas fa-search"></i>
+                                <input type="text" id="category-search" placeholder="搜索分类名称..." oninput="searchCategories()">
+                            </div>
+                        </div>
+                        <div class="category-tree" id="category-tree">
+                            <!-- 分类树将通过JS动态加载 -->
+                        </div>
+                    </div>
+                    
+                    <!-- 右侧详情面板 -->
+                    <div class="category-detail-panel" id="category-detail-panel">
+                        <div class="detail-empty">
+                            <div class="empty-icon">
+                                <i class="fas fa-folder-tree"></i>
+                            </div>
+                            <h3>选择分类查看详情</h3>
+                            <p>点击左侧分类树中的分类查看或编辑详情</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 分类管理弹窗 -->
+    <div class="modal" id="category-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="category-modal-title"><i class="fas fa-folder"></i> 添加分类</h2>
+                <button class="close-btn" onclick="closeModal('category-modal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="category-id">
+                <input type="hidden" id="category-parent-id">
+                <div class="form-group" id="parent-category-group" style="display: none;">
+                    <label>父级分类</label>
+                    <input type="text" id="category-parent-name" readonly>
+                </div>
+                <div class="form-group">
+                    <label>分类名称 <span class="required">*</span></label>
+                    <input type="text" id="category-name" placeholder="请输入分类名称">
+                </div>
+                <div class="form-group">
+                    <label>描述</label>
+                    <textarea id="category-description" placeholder="请输入分类描述（可选）" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>颜色标识</label>
+                    <div class="color-picker">
+                        <input type="color" id="category-color" value="#3498db">
+                        <div class="color-presets">
+                            <span class="color-preset" style="background: #3498db" data-color="#3498db"></span>
+                            <span class="color-preset" style="background: #e74c3c" data-color="#e74c3c"></span>
+                            <span class="color-preset" style="background: #2ecc71" data-color="#2ecc71"></span>
+                            <span class="color-preset" style="background: #f39c12" data-color="#f39c12"></span>
+                            <span class="color-preset" style="background: #9b59b6" data-color="#9b59b6"></span>
+                            <span class="color-preset" style="background: #1abc9c" data-color="#1abc9c"></span>
+                            <span class="color-preset" style="background: #34495e" data-color="#34495e"></span>
+                            <span class="color-preset" style="background: #e91e63" data-color="#e91e63"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>图标</label>
+                    <div class="icon-picker">
+                        <input type="text" id="category-icon" value="folder" placeholder="输入图标名称">
+                        <div class="icon-presets">
+                            <span class="icon-preset" data-icon="folder"><i class="fas fa-folder"></i></span>
+                            <span class="icon-preset" data-icon="folder-open"><i class="fas fa-folder-open"></i></span>
+                            <span class="icon-preset" data-icon="tag"><i class="fas fa-tag"></i></span>
+                            <span class="icon-preset" data-icon="box"><i class="fas fa-box"></i></span>
+                            <span class="icon-preset" data-icon="cube"><i class="fas fa-cube"></i></span>
+                            <span class="icon-preset" data-icon="layer-group"><i class="fas fa-layer-group"></i></span>
+                            <span class="icon-preset" data-icon="shapes"><i class="fas fa-shapes"></i></span>
+                            <span class="icon-preset" data-icon="image"><i class="fas fa-image"></i></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="cyber-btn" onclick="closeModal('category-modal')">取消</button>
+                <button class="cyber-btn primary" id="category-save-btn" onclick="saveCategory()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分类删除确认弹窗 -->
+    <div class="modal" id="category-delete-modal">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <h2><i class="fas fa-exclamation-triangle"></i> 确认删除</h2>
+                <button class="close-btn" onclick="closeModal('category-delete-modal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body delete-confirm-body">
+                <div class="delete-icon">
+                    <i class="fas fa-folder-minus"></i>
+                </div>
+                <p>确定要删除分类 "<span id="delete-category-name"></span>" 吗？</p>
+                <p class="warning-text" id="delete-warning-text"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="cyber-btn danger" id="confirm-delete-category-btn" onclick="confirmDeleteCategory()">
+                    <i class="fas fa-trash-alt"></i> 确认删除
+                </button>
+                <button class="cyber-btn" onclick="closeModal('category-delete-modal')">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建项目弹窗 -->
+    <div class="modal" id="create-project-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-rocket"></i> 创建新项目</h2>
+                <button class="close-btn" onclick="closeModal('create-project-modal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>项目名称</label>
+                    <input type="text" id="project-name" placeholder="输入项目名称...">
+                </div>
+                <div class="form-group">
+                    <label>项目描述</label>
+                    <textarea id="project-description" placeholder="描述项目的用途..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>分类 <span class="required">*</span></label>
+                    <select id="project-category">
+                        <option value="">请选择分类...</option>
+                    </select>
+                    <small class="form-hint">
+                        <a href="#" onclick="switchView('categories'); return false;" style="color: var(--primary);">
+                            <i class="fas fa-external-link-alt"></i> 管理分类
+                        </a>
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>数据类型 <span class="required">*</span></label>
+                    <select id="project-data-type">
+                        <option value="all">全部</option>
+                        <option value="image">仅图像</option>
+                    </select>
+                    <small class="form-hint">选择要处理的数据类型</small>
+                </div>
+                <div class="form-group">
+                    <label>数据目录 <span class="required">*</span></label>
+                    <div class="directory-input">
+                        <input type="text" id="project-data-dir" placeholder="将文件夹拖拽到此处，或手动输入路径..." required>
+                        <label class="cyber-btn small file-btn">
+                            <i class="fas fa-folder-open"></i> 浏览
+                            <input type="file" id="project-dir-input" webkitdirectory directory multiple style="display: none;">
+                        </label>
+                        <!-- <button type="button" class="cyber-btn small" onclick="selectDataDirectory()" title="手动输入路径">
+                            <i class="fas fa-keyboard"></i>
+                        </button> -->
+                    </div>
+                    <small class="form-hint">选择包含图片/视频的文件夹作为数据源（拖拽目录或点击浏览按钮）</small>
+                </div>
+                
+                <!-- AI预刷配置 -->
+                <div class="inference-config-section">
+                    <div class="inference-toggle">
+                        <label class="toggle-label">
+                            <span class="toggle-icon">
+                                <i class="fas fa-robot"></i>
+                            </span>
+                            <span class="toggle-text">
+                                <strong>AI智能预刷</strong>
+                                <small>启用AI自动识别图像中的物体</small>
+                            </span>
+                        </label>
+                        <label class="switch">
+                            <input type="checkbox" id="project-enable-inference">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    
+                    <div class="inference-labels-container" id="inference-labels-group" style="display: none;">
+                        <div class="inference-labels-header">
+                            <i class="fas fa-crosshairs"></i>
+                            <span>选择要识别的目标分类（可多选）</span>
+                        </div>
+                        <div class="inference-labels-grid" id="project-inference-labels">
+                            <p class="empty-hint">请先选择项目分类</p>
+                        </div>
+                        <small class="form-hint">点击选择目标分类，AI将只识别选中的类别</small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="cyber-btn" onclick="closeModal('create-project-modal')">取消</button>
+                <button class="cyber-btn primary" onclick="createProject()">创建项目</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑项目弹窗 -->
+    <div class="modal" id="edit-project-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-edit"></i> 编辑项目</h2>
+                <button class="close-btn" onclick="closeModal('edit-project-modal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-project-id">
+                <div class="form-group">
+                    <label>项目名称</label>
+                    <input type="text" id="edit-project-name" placeholder="输入项目名称...">
+                </div>
+                <div class="form-group">
+                    <label>项目描述</label>
+                    <textarea id="edit-project-description" placeholder="描述项目的用途..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>分类</label>
+                    <select id="edit-project-category">
+                        <option value="">请选择分类...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>数据类型</label>
+                    <select id="edit-project-data-type">
+                        <option value="all">全部</option>
+                        <option value="image">仅图像</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>数据目录</label>
+                    <div class="directory-input">
+                        <input type="text" id="edit-project-data-dir" placeholder="选择本地数据目录..." readonly>
+                        <label class="cyber-btn small file-btn">
+                            <i class="fas fa-folder-open"></i> 浏览
+                            <input type="file" id="edit-dir-input" webkitdirectory directory multiple style="display: none;">
+                        </label>
+                    </div>
+                    <small class="form-hint">修改数据目录将同步更新文件列表</small>
+                </div>
+                
+                <!-- AI预刷配置 -->
+                <div class="inference-config-section">
+                    <div class="inference-toggle">
+                        <label class="toggle-label">
+                            <span class="toggle-icon">
+                                <i class="fas fa-robot"></i>
+                            </span>
+                            <span class="toggle-text">
+                                <strong>AI智能预刷</strong>
+                                <small>启用AI自动识别图像中的物体</small>
+                            </span>
+                        </label>
+                        <label class="switch">
+                            <input type="checkbox" id="edit-project-enable-inference">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    
+                    <div class="inference-labels-container" id="edit-inference-labels-group" style="display: none;">
+                        <div class="inference-labels-header">
+                            <i class="fas fa-crosshairs"></i>
+                            <span>选择要识别的目标分类（可多选）</span>
+                        </div>
+                        <div class="inference-labels-grid" id="edit-project-inference-labels">
+                            <p class="empty-hint">请先选择分类...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="cyber-btn" onclick="closeModal('edit-project-modal')">取消</button>
+                <button class="cyber-btn primary" onclick="updateProject()">保存修改</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 消息提示 -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- 删除确认弹窗 -->
+    <div class="modal" id="delete-confirm-modal">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <h2><i class="fas fa-exclamation-triangle"></i> 确认删除</h2>
+                <button class="close-btn" onclick="closeModal('delete-confirm-modal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body delete-confirm-body">
+                <div class="delete-icon">
+                    <i class="fas fa-trash-alt"></i>
+                </div>
+                <p class="delete-message">确定要删除此项目吗？</p>
+                <p class="delete-warning">此操作不可撤销，所有标注数据将被永久删除。</p>
+            </div>
+            <div class="modal-footer">
+                <button class="cyber-btn danger" id="confirm-delete-btn" onclick="confirmDeleteProject()">
+                    <i class="fas fa-trash-alt"></i> 确认删除
+                </button>
+                <button class="cyber-btn" onclick="closeModal('delete-confirm-modal')">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 标注类型选择弹窗 -->
+    <div class="modal" id="label-select-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-tags"></i> 选择标注类型</h2>
+                <button class="close-btn" onclick="closeLabelSelectModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="label-select-list" id="label-select-list">
+                    <!-- 标签选项将通过JS动态加载 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="cyber-btn" onclick="closeLabelSelectModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 快捷键提示 -->
+    <!-- <div class="shortcuts-hint">
+        <span>快捷键: V-选择 R-矩形 P-多边形 Del-删除 Ctrl+S-保存</span>
+    </div> -->
+
+    <!-- Socket.io 客户端库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- 核心模块 -->
+    <script src="js/core/EventBus.js"></script>
+    <script src="js/core/HistoryManager.js"></script>
+    <!-- 渲染模块 -->
+    <script src="js/rendering/LayeredCanvas.js"></script>
+    <!-- 工具模块 -->
+    <script src="js/tools/KeypointTool.js"></script>
+    <script src="js/tools/ViewControl.js"></script>
+    <script src="js/tools/TextTool.js"></script>
+    <script src="js/tools/ComparisonMode.js"></script>
+    <!-- UI模块 -->
+    <script src="js/ui/ShortcutManager.js"></script>
+    <script src="js/ui/VisibilityManager.js"></script>
+    <!-- 主应用 -->
+    <script src="js/app.js"></script>
+    <script src="js/canvas.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/inference.js"></script>
+    
+    <!-- Toast 通知容器 -->
+    <div id="toast-container" class="toast-container"></div>
+</body>
+</html>
