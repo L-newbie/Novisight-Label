@@ -128,6 +128,10 @@
             canvas.width = img.width;
             canvas.height = img.height;
             
+            // 重置平移偏移量（加载新图像时）
+            CanvasState.panOffsetX = 0;
+            CanvasState.panOffsetY = 0;
+            
             // 计算显示缩放：让图像适应wrapper大小，同时保持宽高比
             const scaleX = rect.width / img.width;
             const scaleY = rect.height / img.height;
@@ -160,9 +164,12 @@
         const rect = canvas.getBoundingClientRect();
         
         // 计算画布内的坐标（以左上角为原点）
+        // 需要考虑平移偏移量，将屏幕坐标转换为原始图像坐标
         const scale = getScale();
-        const x = (e.clientX - rect.left) / scale;
-        const y = (e.clientY - rect.top) / scale;
+        const screenX = (e.clientX - rect.left) / scale;
+        const screenY = (e.clientY - rect.top) / scale;
+        const x = screenX - CanvasState.panOffsetX;
+        const y = screenY - CanvasState.panOffsetY;
         
         CanvasState.startX = x;
         CanvasState.startY = y;
@@ -170,8 +177,14 @@
         CanvasState.currentY = y;
         CanvasState.shiftKey = e.shiftKey; // 追踪Shift键状态
         
-        // 处理平移功能：支持中键拖动或按住空格键拖动
-        if (e.button === 1 || (e.button === 0 && e.altKey)) {
+        // 处理平移功能：支持中键拖动、或按住Alt键拖动、或在选择工具下拖动空白区域
+        // 判断是否可以平移：选择工具时可以在空白区域拖动，或按住Alt/中键
+        const canPan = (e.button === 1) || (e.button === 0 && e.altKey);
+        const isSelectTool = AppState.currentTool === 'select';
+        const clickedIndex = isSelectTool ? findAnnotationAt(x, y) : -1;
+        const canPanInSelectMode = isSelectTool && clickedIndex === -1;
+        
+        if ((canPan || canPanInSelectMode) && !CanvasState.isDrawing) {
             e.preventDefault();
             CanvasState.isPanning = true;
             CanvasState.panStartX = e.clientX;
@@ -247,22 +260,26 @@
     // 鼠标移动处理
     function handleMouseMove(e) {
         const canvas = document.getElementById('main-canvas');
-        const wrapper = document.getElementById('canvas-wrapper');
         const rect = canvas.getBoundingClientRect();
         
-        // 处理平移（拖动视图）
+        // 处理平移（拖动视图）- 在canvas内部移动图像
         if (CanvasState.isPanning) {
-            const dx = e.clientX - CanvasState.panStartX;
-            const dy = e.clientY - CanvasState.panStartY;
+            const scale = getScale();
+            const dx = (e.clientX - CanvasState.panStartX) / scale;
+            const dy = (e.clientY - CanvasState.panStartY) / scale;
             
-            // 更新画布容器的transform来实现平移
-            if (wrapper) {
-                CanvasState.panOffsetX += dx;
-                CanvasState.panOffsetY += dy;
-                
-                const transformScale = (AppState.displayScale || 1) * AppState.zoom;
-                wrapper.style.transform = `translate(${CanvasState.panOffsetX}px, ${CanvasState.panOffsetY}px) scale(${transformScale})`;
-            }
+            // 保存平移偏移量，用于在绘制时应用
+            CanvasState.panOffsetX += dx;
+            CanvasState.panOffsetY += dy;
+            
+            // 限制平移范围，确保图像不会完全移出可视区域
+            const maxOffsetX = canvas.width / 2;
+            const maxOffsetY = canvas.height / 2;
+            CanvasState.panOffsetX = Math.max(-maxOffsetX, Math.min(maxOffsetX, CanvasState.panOffsetX));
+            CanvasState.panOffsetY = Math.max(-maxOffsetY, Math.min(maxOffsetY, CanvasState.panOffsetY));
+            
+            // 重绘canvas，应用平移
+            redrawCanvas();
             
             CanvasState.panStartX = e.clientX;
             CanvasState.panStartY = e.clientY;
@@ -270,8 +287,10 @@
         }
         
         const scale = getScale();
-        const x = (e.clientX - rect.left) / scale;
-        const y = (e.clientY - rect.top) / scale;
+        const screenX = (e.clientX - rect.left) / scale;
+        const screenY = (e.clientY - rect.top) / scale;
+        const x = screenX - CanvasState.panOffsetX;
+        const y = screenY - CanvasState.panOffsetY;
         
         CanvasState.currentX = x;
         CanvasState.currentY = y;
@@ -406,8 +425,10 @@
         const canvas = document.getElementById('main-canvas');
         const rect = canvas.getBoundingClientRect();
         const scale = getScale();
-        const x = (e.clientX - rect.left) / scale;
-        const y = (e.clientY - rect.top) / scale;
+        const screenX = (e.clientX - rect.left) / scale;
+        const screenY = (e.clientY - rect.top) / scale;
+        const x = screenX - CanvasState.panOffsetX;
+        const y = screenY - CanvasState.panOffsetY;
         
         if (AppState.currentTool === 'bbox') {
             // bbox格式为 [x1, y1, x2, y2]
@@ -811,6 +832,13 @@
         // 清空画布
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
+        ctx.save();
+        
+        // 应用平移偏移量（如果有）
+        if (CanvasState.panOffsetX !== 0 || CanvasState.panOffsetY !== 0) {
+            ctx.translate(CanvasState.panOffsetX, CanvasState.panOffsetY);
+        }
+        
         // 绘制背景图像
         if (AppState.currentImage) {
             ctx.drawImage(AppState.currentImage, 0, 0);
@@ -829,6 +857,8 @@
         if (CanvasState.polygonPoints.length > 0) {
             drawTempPolygon(ctx, CanvasState.polygonPoints);
         }
+        
+        ctx.restore();
     };
     
     // 批量渲染包装器
