@@ -12,7 +12,7 @@ eggs/
 .eggs/
 lib/
 models/*
-data/
+data/database/*db
 lib64/
 parts/
 sdist/
