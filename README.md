@@ -46,7 +46,7 @@ python backend/app.py
 # 浏览器打开 http://localhost:5000
 ```
 
-> ⚠️ **注意**: AI 预刷功能需要手动下载 [ViT-B-32.pt](https://github.com/facebookresearch/segment-anything?tab=readme-ov-file) 和 [yolov8x-worldv2.pt](https://github.com/ultralytics/ultralytics) 模型文件，移至 `models/` 目录。
+> ⚠️ **注意**: AI 预刷功能需要手动下载 [ViT-B-32.pt](https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt) 和 [yolov8x-worldv2.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8x-worldv2.pt) 模型文件，移至 `models/` 目录。
 
 ## 路线图
 
