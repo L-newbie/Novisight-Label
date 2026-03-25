@@ -1,8 +1,8 @@
-
+<div align="center">
 
 # Novisight Label - 智能数据标注系统
 
-
+</div>
 
 <p align="center">
   <img src="https://img.shields.io/badge/版本-1.0.0-blue" alt="版本">
