@@ -1,6 +1,6 @@
 <p align="center">
 
-# Novisight Label - 智能数据标注系统
+Novisight Label - 智能数据标注系统
 
 </p>
 
